@@ -1,0 +1,29 @@
+# GenAI Financial Earnings Report Analyst — Sprint 1 dependencies
+# Python 3.10+ required. Install with: pip install -r requirements.txt
+
+# Web dashboard
+streamlit>=1.36,<2.0
+
+# SEC EDGAR ingestion / HTTP
+requests>=2.31
+
+# HTML parsing
+beautifulsoup4>=4.12
+lxml>=5.2
+
+# RAG: chunking
+langchain-text-splitters>=0.2
+
+# RAG: embeddings
+sentence-transformers>=2.7
+
+# RAG: vector store
+chromadb>=0.5
+
+# NLP: FinBERT sentiment
+transformers>=4.40
+torch>=2.2
+torchvision>=0.17
+
+# Configuration
+python-dotenv>=1.0
