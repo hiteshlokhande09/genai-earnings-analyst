@@ -49,6 +49,8 @@ def _chat(system_prompt: str, user_prompt: str) -> Optional[str]:
 
     last_error: Optional[Exception] = None
     for attempt in range(config.HTTP_MAX_RETRIES):
+        # Exponential backoff (base HTTP_BACKOFF_SECONDS, doubling each retry)
+        # to avoid hammering the endpoint during transient outages/rate limits.
         try:
             response = requests.post(
                 config.LLAMA3_BASE_URL,

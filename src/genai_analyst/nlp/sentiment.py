@@ -59,7 +59,7 @@ def aggregate_tone(results: List[dict]) -> Dict[str, object]:
             "negative": 0,
         }
 
-    weight = {"positive": 1.0, "neutral": 0.5, "negative": 0.0}
+    weight = {"positive": 1.0, "neutral": 0.5, "negative": 0.0}  # maps labels onto a 0-1 scale so tone_score is directly interpretable (0=negative, 1=positive)
     counts = {"positive": 0, "neutral": 0, "negative": 0}
     total = 0.0
 

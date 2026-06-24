@@ -43,6 +43,8 @@ def retrieve_context(filing: dict, task: str) -> str:
 
     ``task`` must be one of the keys in ``QUERY_TEMPLATES``.
     """
+    # Falls back to using `task` itself as the raw query text if it isn't a
+    # recognized template key, so callers can still pass an ad-hoc query.
     query_text = QUERY_TEMPLATES.get(task, task)
     chunks = retrieve(filing, query_text, top_k=config.RAG_TOP_K)
     return "\n\n".join(chunk["text"] for chunk in chunks)
