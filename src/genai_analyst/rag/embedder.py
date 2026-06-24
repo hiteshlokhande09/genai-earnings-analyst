@@ -12,7 +12,7 @@ from typing import List, Optional
 
 from genai_analyst.core import config
 
-_MODEL = None  # lazy-loaded SentenceTransformer singleton
+_MODEL = None  # lazy-loaded SentenceTransformer singleton — avoids reloading the model on every call
 
 
 def _get_model():

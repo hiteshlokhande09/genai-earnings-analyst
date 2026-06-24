@@ -27,7 +27,7 @@ def main():
         print("Usage: python run_cli.py TICKER [FORM_TYPE]")
         sys.exit(1)
 
-    ticker = sys.argv[1].upper()
+    ticker = sys.argv[1].upper()  # normalise ticker to uppercase, e.g. 'aapl' -> 'AAPL'
     form_type = sys.argv[2] if len(sys.argv) > 2 else "10-K"
 
     result = pipeline.run_analysis(ticker, form_type, progress=_progress)

@@ -50,4 +50,4 @@ def retrieve_context(filing: dict, task: str) -> str:
 
 def retrieve_all_contexts(filing: dict) -> Dict[str, str]:
     """Retrieve context blocks for every analytical task at once."""
-    return {task: retrieve_context(filing, task) for task in QUERY_TEMPLATES}
+    return {task: retrieve_context(filing, task) for task in QUERY_TEMPLATES}  # runs one retrieval per task in a single pass
