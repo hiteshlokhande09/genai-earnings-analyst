@@ -1,1 +1,1 @@
-"""Data ingestion: SEC EDGAR retrieval and HTML parsing."""
+"""GenAI Earnings Analyst subpackage."""
