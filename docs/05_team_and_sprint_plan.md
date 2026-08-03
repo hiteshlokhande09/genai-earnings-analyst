@@ -1,62 +1,95 @@
 # 05 — Team & Sprint Plan
 
-## Sprint structure
+## Team
 
-The project follows the **Scrum** framework over two sprints, each aligned to a
-review checkpoint.
+| Member | PRN | Role |
+|--------|-----|------|
+| Hitesh Lokhande | 260250125043 | Data pipeline, XBRL KPI extraction, landing page, integration lead |
+| Aanandita Yedulla | 260250125096 | RAG embedding, SQLite persistence, KPI comparison engine |
+| Ruchi Rathore | 260250125067 | RAG retrieval, FinBERT tone, Llama 3 generation, visualizer |
+| Rupali Saolikar | 260250125068 | ChromaDB vector store, Streamlit dashboard, Bull/Bear signal, PDF report |
 
-| Sprint | Review | Scope (SRS steps) |
-|--------|--------|-------------------|
-| Sprint 1 | Mid-semester | Steps 1–8: ingestion, RAG, FinBERT, Llama 3, dashboard |
-| Sprint 2 | End-semester | Steps 9–12: KPI comparison, charts, PDF, full dashboard, deployment |
+**Project Guide:** Aditya Arsh, C-DAC Bangalore
+**Course:** PG Certificate in Big Data Analytics (PGCP-BDA), Feb 2026 Batch
 
-## Sprint 1 deliverables (this submission)
+## Sprint structure (Agile / Scrum)
 
-| SRS function | Module |
-|--------------|--------|
-| 1. SEC Filing Ingestion | `ingestion/edgar_client.py` |
-| 2. HTML Parsing & Extraction | `ingestion/filing_parser.py` |
-| 3. Text Cleaning & Chunking | `ingestion/filing_parser.py`, `rag/chunker.py` |
-| 4. Sentence Transformer Embedding | `rag/embedder.py` |
-| 5. ChromaDB Vector Storage | `rag/vector_store.py` |
-| 6. RAG Retrieval | `rag/retriever.py` |
-| 7. FinBERT Sentiment | `nlp/sentiment.py` |
-| 8. Executive Summary / Risk / Guidance | `nlp/generation.py` |
-| Dashboard (basic) | `dashboard.py` |
-| Orchestration | `core/pipeline.py` |
-| RAG indexing (chunk→embed→store) | `rag/indexer.py` |
+| Sprint | Review | Scope |
+|--------|--------|-------|
+| Sprint 1 | Mid-semester | Steps 1–8: ingestion, RAG, FinBERT, Llama 3, basic dashboard |
+| Sprint 2 | End-semester | Steps 9–17: XBRL KPIs, comparison, signal, charts, PDF, history, landing |
 
-## Team ownership (Sprint 1)
+## Sprint 1 deliverables
 
-The division gives every member real backend work **and** at least one component
-of the RAG subsystem — the core technical contribution of Sprint 1.
+| Module | Owner | Responsibility |
+|--------|-------|----------------|
+| `ingestion/edgar_client.py` | Hitesh | SEC EDGAR retrieval, CIK resolution, HTML download + cache |
+| `ingestion/filing_parser.py` | Hitesh | HTML parsing, text cleaning, section segmentation |
+| `core/config.py` | Hitesh | Central configuration, paths, model names, KPI concepts |
+| `core/pipeline.py` | Hitesh | End-to-end orchestrator, progress callbacks, cache hit path |
+| `rag/chunker.py` | Hitesh | LangChain semantic chunking, section-aware splitting |
+| `rag/indexer.py` | Hitesh | chunk→embed→store, skip-if-indexed caching |
+| `rag/embedder.py` | Aanandita | Sentence Transformer model singleton, embed_texts, embed_query |
+| `rag/vector_store.py` | Rupali | ChromaDB persistent store, add/query/reset operations |
+| `rag/retriever.py` | Ruchi | Top-K retrieval, per-task query templates, retrieve_all_contexts |
+| `nlp/sentiment.py` | Ruchi | FinBERT batched sentiment, tone score aggregation |
+| `nlp/generation.py` | Ruchi | Llama 3 via Groq, summary/risks/guidance, LLM cache |
+| `dashboard.py` (basic) | Rupali | Streamlit UI: sidebar, progress bar, basic results display |
+| `app.py` | Rupali | Root launcher, page config, landing ↔ dashboard router |
+| `run_cli.py` | Aanandita | Headless CLI runner with argparse |
 
-| Member | Modules owned | RAG component | Pipeline area |
-|--------|---------------|---------------|---------------|
-| **Hitesh** | `edgar_client.py`, `filing_parser.py`, `core/config.py`, `core/pipeline.py`, `rag/chunker.py` | Chunking | Data ingestion + integration + KT docs |
-| **Anandita** | `rag/embedder.py`, `rag/indexer.py` | Embedding | RAG embedding + indexing |
-| **Ruchi** | `rag/retriever.py`, `nlp/sentiment.py`, `nlp/generation.py` | Retrieval | RAG retrieval + NLP models |
-| **Rupali** | `rag/vector_store.py`, `dashboard.py` | Vector store | Vector storage + frontend |
+## Sprint 2 deliverables
 
-### Demo flow (follows the data through the pipeline)
+| Module | Owner | Responsibility |
+|--------|-------|----------------|
+| `analysis/kpi_extractor.py` | Hitesh | XBRL KPI extraction, duration-based period matching, GrossMargin derivation |
+| `landing.py` | Hitesh | Marketing landing page, System/Light/Dark theme, pricing cards |
+| `core/database.py` | Aanandita | SQLite analysis history, LLM response cache, idempotent migration |
+| `analysis/comparison_engine.py` | Aanandita | pandas period-over-period comparison, direction arrows |
+| `analysis/signal_generator.py` | Aanandita + Rupali | Weighted Bull/Bear signal (shared) |
+| `output/pdf_generator.py` | Aanandita + Ruchi | ReportLab 9-section PDF report (shared) |
+| `output/visualizer.py` | Ruchi | matplotlib charts: KPI, tone, signal |
+| `dashboard.py` (full Sprint 2) | Rupali | KPI cards, comparison table, signal, charts, PDF download, history |
 
-1. **Hitesh** — ingest filing → parse → chunk (Steps 1–4)
-2. **Anandita** — embed chunks → index into the store (Step 5)
-3. **Rupali** — ChromaDB vector store holds the vectors (Step 6)
-4. **Ruchi** — retrieve Top-K context → FinBERT tone → Llama 3 output (Steps 7–8)
-5. **Rupali** — results shown on the Streamlit dashboard
+## Final module ownership
 
-## Sprint 2 plan (end-semester)
+| Member | Modules | Lines |
+|--------|---------|-------|
+| **Hitesh** | `edgar_client`, `filing_parser`, `config`, `pipeline`, `chunker`, `indexer`, `kpi_extractor`, `landing` | 1,278 |
+| **Aanandita** | `embedder`, `database`, `comparison_engine`, `signal_generator`*, `pdf_generator`*, `run_cli` | 782 |
+| **Ruchi** | `retriever`, `sentiment`, `generation`, `visualizer`, `pdf_generator`* | 698 |
+| **Rupali** | `vector_store`, `dashboard`, `app`, `signal_generator`* | 982 |
 
-| SRS function | Planned module | Owner |
-|--------------|----------------|-------|
-| 9. KPI Comparison | `analysis/comparison.py` | Anandita |
-| 10. Chart Generation | `output/visualizer.py` | Ruchi |
-| 11. PDF Report | `output/report.py` | Rupali |
-| 12. Full Dashboard | `dashboard.py` (extended) | Rupali |
-| Bull/Bear Signal | `analysis/signal.py` | Rupali |
-| History & Analytics | `core/database.py` | Anandita |
-| RAG evaluation + deployment | — | Hitesh |
+*shared — both members contributed
 
-Each member therefore carries a comparable load in **both** reviews: a Sprint 1
-module set plus a distinct Sprint 2 deliverable.
+`theme.py` — shared utility (no individual owner).
+
+Every member owns at least one RAG-subsystem module:
+- Hitesh → chunking + indexing
+- Aanandita → embedding
+- Ruchi → retrieval
+- Rupali → vector store
+
+## Demo flow (follows the data through the pipeline)
+
+1. **Hitesh** — ingest filing from SEC EDGAR → parse HTML → chunk sections
+   → extract XBRL KPIs → period-over-period comparison
+2. **Aanandita** — embed chunks → index in ChromaDB → compute comparison
+   table → Bull/Bear signal (shared)
+3. **Rupali** — ChromaDB vector store holds embeddings → full Streamlit
+   dashboard renders KPI cards, charts, PDF download → Bull/Bear signal (shared)
+4. **Ruchi** — retrieve Top-K context → FinBERT tone analysis → Llama 3
+   summary, risks, guidance → matplotlib charts
+5. **Rupali** — user downloads PDF; analysis cached in SQLite for instant
+   reload; history visible in sidebar
+
+## Git version control
+
+Repository: https://github.com/hiteshlokhande09/genai-earnings-analyst
+
+Branch strategy: each member works on a named feature branch and raises a
+Pull Request merged to `main`:
+- `hitesh/fix-kpi-indexer-landing` — Sprint 2 KPI extractor, indexer, landing
+- `anandita/sprint2-modules` — embedding, database, comparison, signal, PDF, CLI
+- `ruchi/sprint2-modules` — retriever, sentiment, generation, visualizer, PDF
+- `rupali/sprint2-modules` — vector store, dashboard, app, signal
