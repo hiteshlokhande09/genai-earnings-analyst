@@ -1,121 +1,241 @@
 # GenAI Financial Earnings Report Analyst
 
-An AI-powered system that ingests SEC earnings filings (10-K / 10-Q) and
-generates investor-grade analysis using Retrieval-Augmented Generation (RAG),
-FinBERT sentiment analysis, and Meta Llama 3.
+> **The AI writes words, not numbers.** All financial figures come directly from
+> the SEC EDGAR XBRL API. The language model only ever sees retrieved text and
+> produces narrative — guaranteeing numerical accuracy and auditability.
 
-This repository contains the **Sprint 1** (mid-semester) deliverable.
+An end-to-end GenAI-powered tool that turns SEC 10-K and 10-Q filings into
+structured, investor-grade analysis in under 90 seconds.
 
 ---
 
-## 1. Project overview
+## What it does
 
-Financial earnings reports are often hundreds of pages long. This system
-automates their analysis by combining structured retrieval with generative AI:
-the filing is fetched from SEC EDGAR, semantically chunked, embedded into a
-vector store, and the most relevant sections are retrieved and passed to a
-language model — which keeps cost low and reduces hallucination.
+Enter a stock ticker. The system:
 
-**Golden rule:** narrative text is AI-generated; all factual figures come from
-the official SEC filing. The AI writes words, not numbers.
+1. Fetches the latest 10-K or 10-Q filing from **SEC EDGAR**
+2. Parses and cleans the HTML, segments MD&A / Risk Factors / Financials
+3. Chunks the text and stores it in **ChromaDB** via Sentence Transformer embeddings
+4. Retrieves the most relevant passages using **RAG** (Top-K cosine similarity)
+5. Extracts exact KPIs — Revenue, Net Income, EPS, Gross Profit, Gross Margin,
+   Operating Income — from **EDGAR XBRL** (not the AI)
+6. Scores management tone with **FinBERT** (local, no API cost)
+7. Generates executive summary, top-5 risks and forward guidance with
+   **Meta Llama 3 via Groq API**
+8. Computes a weighted **Bull/Bear signal** from KPI growth, margin, tone and guidance
+9. Renders charts, a downloadable **PDF report**, and an interactive **Streamlit dashboard**
+10. Caches everything in **SQLite** — repeat loads are instant
 
-## 2. Sprint scope (Agile / Scrum)
+---
 
-The project follows the **Scrum** framework over two sprints.
+## Screenshots
 
-**Sprint 1 (this deliverable) — Steps 1–8 of the architecture flow:**
-SEC ingestion → HTML parsing → semantic chunking → embeddings → ChromaDB
-vector store → RAG retrieval → FinBERT sentiment → Llama 3 summary, risk
-factors and forward guidance, presented through a Streamlit dashboard.
+| Landing page | Analysis dashboard |
+|---|---|
+| *(insert screenshot)* | *(insert screenshot)* |
 
-**Sprint 2 (end-semester) — Steps 9–12:**
-KPI comparison, chart generation, PDF report, full dashboard, SQLite history
-analytics and deployment.
+---
 
-## 3. Technology stack
+## Quick start
 
-| Layer | Technology |
-|-------|-----------|
-| Data ingestion | SEC EDGAR API |
-| HTML parsing | BeautifulSoup4 + lxml |
-| Chunking | LangChain RecursiveCharacterTextSplitter |
-| Embeddings | Sentence Transformers (all-MiniLM-L6-v2) |
-| Vector store | ChromaDB (persistent) |
-| Retrieval | Top-K cosine similarity |
-| Sentiment | FinBERT (ProsusAI/finbert) |
-| LLM | Meta Llama 3 (via Groq API) |
-| Dashboard | Streamlit |
-| Language | Python 3.10+ |
+### Prerequisites
+- Python 3.10+
+- git
 
-## 4. Project structure
-
-```
-genai-earnings-analyst/
-├── app.py                      # Streamlit launcher (streamlit run app.py)
-├── run_cli.py                  # Headless CLI runner
-├── requirements.txt
-├── pyproject.toml              # Project metadata + tooling config
-├── .env.example                # Template for secrets (copy to .env)
-├── .gitignore
-│
-├── src/genai_analyst/
-│   ├── core/
-│   │   ├── config.py           # Central configuration
-│   │   └── pipeline.py         # Step 1–8 orchestrator
-│   ├── ingestion/
-│   │   ├── edgar_client.py     # SEC EDGAR retrieval
-│   │   └── filing_parser.py    # HTML parsing + segmentation
-│   ├── rag/
-│   │   ├── chunker.py          # LangChain chunking
-│   │   ├── embedder.py         # Sentence Transformer embeddings
-│   │   ├── vector_store.py     # ChromaDB wrapper
-│   │   ├── retriever.py        # Top-K RAG retrieval
-│   │   └── indexer.py          # Chunk → embed → store
-│   ├── nlp/
-│   │   ├── sentiment.py        # FinBERT
-│   │   └── generation.py       # Llama 3
-│   └── dashboard.py            # Streamlit UI
-│
-├── tests/                      # Unit tests (pytest)
-└── docs/                       # Design, SDLC and knowledge-transfer docs
-```
-
-## 5. Installation & setup
-
-See `docs/02_installation_and_setup.md` for full step-by-step instructions.
-Quick version:
+### Install
 
 ```bash
+git clone https://github.com/hiteshlokhande09/genai-earnings-analyst
+cd genai-earnings-analyst
+
 python -m venv venv
-venv\Scripts\activate            # Windows  (source venv/bin/activate on mac/Linux)
+venv\Scripts\Activate.ps1        # Windows PowerShell
+# source venv/bin/activate        # macOS / Linux
+
 pip install -r requirements.txt
-copy .env.example .env           # then edit .env with your keys
+python -m spacy download en_core_web_sm   # optional but recommended
+```
+
+### Configure
+
+```bash
+copy .env.example .env     # Windows
+cp .env.example .env       # macOS / Linux
+```
+
+Edit `.env`:
+
+```env
+LLAMA3_API_KEY=gsk_your_groq_key_here
+LLAMA3_BASE_URL=https://api.groq.com/openai/v1/chat/completions
+LLAMA3_MODEL=llama-3.1-8b-instant
+SEC_USER_AGENT=Your Name your.email@example.com
+```
+
+Get a free Groq key at https://console.groq.com/keys (no credit card).
+
+### Run
+
+```bash
 streamlit run app.py
 ```
 
-## 6. Configuration
+Opens at **http://localhost:8501**. Click **Try it now →**, enter a ticker
+(e.g. `AAPL`), choose 10-K or 10-Q, click **🚀 Run analysis**.
 
-All secrets live in a local `.env` file (never committed). Required values:
+### CLI (optional)
 
-| Variable | Purpose |
-|----------|---------|
-| `LLAMA3_API_KEY` | Groq API key (free at console.groq.com) |
-| `LLAMA3_BASE_URL` | LLM endpoint (defaults to Groq) |
-| `LLAMA3_MODEL` | Model name (defaults to llama-3.1-8b-instant) |
-| `SEC_USER_AGENT` | Your name + email (required by SEC) |
+```bash
+python run_cli.py AAPL 10-K
+python run_cli.py MSFT 10-Q --force    # ignore cache, re-analyse
+```
 
-## 7. Running the tests
+---
+
+## Project structure
+
+```
+genai-earnings-analyst/
+├── app.py                          # Streamlit root launcher + router
+├── run_cli.py                      # Headless CLI runner
+├── requirements.txt
+├── .env.example                    # Environment variable template
+├── pyproject.toml                  # Black / isort / pytest config
+│
+├── src/genai_analyst/
+│   ├── core/
+│   │   ├── config.py               # All settings, paths, constants
+│   │   ├── pipeline.py             # End-to-end orchestrator
+│   │   └── database.py             # SQLite history + LLM cache
+│   ├── ingestion/
+│   │   ├── edgar_client.py         # SEC EDGAR retrieval
+│   │   └── filing_parser.py        # HTML parsing + section segmentation
+│   ├── rag/
+│   │   ├── chunker.py              # LangChain semantic chunking
+│   │   ├── indexer.py              # chunk → embed → ChromaDB
+│   │   ├── embedder.py             # Sentence Transformer embeddings
+│   │   ├── vector_store.py         # ChromaDB operations
+│   │   └── retriever.py            # Top-K RAG retrieval
+│   ├── analysis/
+│   │   ├── kpi_extractor.py        # EDGAR XBRL KPI extraction
+│   │   ├── comparison_engine.py    # Period-over-period comparison
+│   │   └── signal_generator.py     # Bull/Bear signal engine
+│   ├── nlp/
+│   │   ├── sentiment.py            # FinBERT management tone
+│   │   └── generation.py           # Llama 3 via Groq API
+│   ├── output/
+│   │   ├── visualizer.py           # matplotlib charts
+│   │   └── pdf_generator.py        # ReportLab PDF report
+│   ├── dashboard.py                # Streamlit analysis UI
+│   ├── landing.py                  # Marketing landing page
+│   └── theme.py                    # Shared CSS theme
+│
+├── tests/
+│   ├── test_smoke.py               # 9 offline smoke tests
+│   ├── test_parser.py
+│   ├── test_chunker.py
+│   ├── test_filing_parser.py
+│   └── test_sentiment.py
+│
+├── data/                           # Runtime data (git-ignored)
+│   ├── cache/                      # Cached filing HTML
+│   ├── chroma/                     # ChromaDB vector collections
+│   ├── charts/                     # Generated PNG charts
+│   ├── reports/                    # Generated PDF reports
+│   └── analyst.db                  # SQLite database
+│
+└── docs/                           # Knowledge transfer documentation
+    ├── 00_start_here.md
+    ├── 01_architecture_and_design.md
+    ├── 02_installation_and_setup.md
+    ├── 03_module_reference.md
+    ├── 04_sdlc_and_engineering_practices.md
+    ├── 05_team_and_sprint_plan.md
+    └── 06_quality_assurance.md
+```
+
+---
+
+## Tech stack
+
+| Layer | Technology |
+|-------|-----------|
+| Language | Python 3.10+ |
+| UI | Streamlit |
+| Data ingestion | SEC EDGAR API, BeautifulSoup4, lxml |
+| RAG | LangChain, Sentence Transformers (`all-MiniLM-L6-v2`), ChromaDB |
+| NLP | FinBERT (`ProsusAI/finbert`), Meta Llama 3 via Groq API |
+| Analysis | pandas, NumPy |
+| Output | matplotlib, ReportLab |
+| Storage | SQLite3 (prototype) → PostgreSQL (production) |
+
+---
+
+## KPIs extracted
+
+All figures come from the SEC EDGAR XBRL API — never AI-generated.
+
+| KPI | XBRL source |
+|-----|------------|
+| Revenue | `RevenueFromContractWithCustomerExcludingAssessedTax` / `Revenues` |
+| Net Income | `NetIncomeLoss` |
+| EPS | `EarningsPerShareDiluted` / `EarningsPerShareBasic` |
+| Gross Profit | `GrossProfit` |
+| Gross Margin | Derived: Gross Profit / Revenue × 100 |
+| Operating Income | `OperatingIncomeLoss` |
+
+Period matching uses duration-aware filtering (annual ≈365 days, quarterly ≈90 days)
+to prevent inflated growth figures in 10-Q filings.
+
+---
+
+## Bull/Bear signal
+
+A weighted combination of four components:
+
+| Component | Weight |
+|-----------|--------|
+| Revenue growth | 30% |
+| Margin / profit trend | 25% |
+| FinBERT management tone | 25% |
+| Forward guidance sentiment | 20% |
+
+Score in [0, 1]: ≥0.6 = **BULLISH**, ≤0.4 = **BEARISH**, else **NEUTRAL**.
+
+> This signal is for informational and educational purposes only. It does not
+> constitute financial, investment or trading advice.
+
+---
+
+## Tests
 
 ```bash
 pip install pytest
-pytest
+pytest tests/ -v
 ```
 
-## 8. Team & sprint ownership
+Nine offline smoke tests (`test_smoke.py`) run without network access or ML
+models and complete in seconds.
 
-See `docs/05_team_and_sprint_plan.md`.
+---
 
-## 9. License & disclaimer
+## Team
 
-For academic use. This tool does not provide financial advice; all figures
-should be verified against primary SEC sources.
+**PG Certificate in Big Data Analytics (PGCP-BDA), C-DAC Bangalore, Feb 2026**
+**Project Guide: Aditya Arsh**
+
+| Member | PRN |
+|--------|-----|
+| Hitesh Lokhande | 260250125043 |
+| Aanandita Yedulla | 260250125096 |
+| Ruchi Rathore | 260250125067 |
+| Rupali Saolikar | 260250125068 |
+
+---
+
+## Disclaimer
+
+This tool is built for educational and informational purposes as part of the
+PGCP-BDA programme at C-DAC Bangalore. It does not constitute financial,
+investment or trading advice. Always consult a licensed financial advisor and
+the original SEC filing before making any decisions.

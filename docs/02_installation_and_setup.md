@@ -1,115 +1,130 @@
 # 02 — Installation & Setup
 
-This guide takes you from a fresh machine to a running dashboard. Commands are
-shown for Windows; macOS/Linux equivalents are noted where they differ.
+From a fresh machine to a running dashboard. Commands shown for Windows
+PowerShell; macOS/Linux equivalents noted where they differ.
 
-## Step 0 — Prerequisites
+## Prerequisites (install once)
 
-Install these once:
-
-* **Python 3.10 or newer** — https://www.python.org/downloads/
-  On Windows, tick **"Add Python to PATH"** during installation.
-* **git** — https://git-scm.com/downloads
+- **Python 3.10 or newer** — https://www.python.org/downloads/
+  Windows: tick **"Add Python to PATH"** during installation.
+- **git** — https://git-scm.com/downloads
 
 Verify:
-```bash
+```powershell
 python --version
 git --version
 ```
 
-## Step 1 — Get the project
+## Step 1 — Clone the repository
 
-```bash
-git clone <your-repo-url>
+```powershell
+git clone https://github.com/hiteshlokhande09/genai-earnings-analyst
 cd genai-earnings-analyst
 ```
-(Or unzip the delivered archive and `cd` into the folder containing `app.py`.)
 
 ## Step 2 — Create a virtual environment
 
-```bash
+```powershell
 python -m venv venv
-```
-
-Activate it:
-```bash
-# Windows (PowerShell)
-venv\Scripts\Activate.ps1
-# Windows (Command Prompt)
-venv\Scripts\activate
-# macOS / Linux
-source venv/bin/activate
+venv\Scripts\Activate.ps1          # Windows PowerShell
+# source venv/bin/activate          # macOS / Linux
 ```
 
 You should see `(venv)` at the start of your prompt.
 
-> **PowerShell note:** if activation is blocked with a "running scripts is
-> disabled" error, run this once:
+> **PowerShell blocked?** Run once:
 > `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`
 
 ## Step 3 — Install dependencies
 
-```bash
+```powershell
 python -m pip install --upgrade pip
 pip install -r requirements.txt
+python -m spacy download en_core_web_sm
 ```
 
-This downloads PyTorch, transformers, sentence-transformers and ChromaDB, so it
-can take several minutes the first time.
+This downloads PyTorch, HuggingFace Transformers, Sentence Transformers,
+ChromaDB and FinBERT — allow 5–10 minutes the first time.
 
-## Step 4 — Get a free Llama 3 API key
+> **spaCy is optional** — the filing parser falls back to regex cleaning
+> if spaCy is absent. The app will still run without it.
 
-1. Go to https://console.groq.com/keys and sign up (no credit card needed).
-2. Click **Create API Key** and copy the key (it starts with `gsk_`).
+## Step 4 — Get a free Groq API key (for Llama 3)
 
-## Step 5 — Configure your environment
+1. Go to https://console.groq.com/keys — sign up free, no credit card.
+2. Click **Create API Key**, copy the key (starts with `gsk_`).
 
-```bash
-copy .env.example .env        # Windows
-cp .env.example .env          # macOS / Linux
+## Step 5 — Configure environment variables
+
+```powershell
+copy .env.example .env          # Windows
+cp .env.example .env            # macOS / Linux
 ```
 
-Open `.env` in a text editor and fill in:
+Open `.env` and fill in your values:
 
-```
-LLAMA3_API_KEY=gsk_your_real_key_here
+```env
+LLAMA3_API_KEY=gsk_your_actual_key_here
 LLAMA3_BASE_URL=https://api.groq.com/openai/v1/chat/completions
 LLAMA3_MODEL=llama-3.1-8b-instant
 SEC_USER_AGENT=Your Name your.email@example.com
 ```
 
-* **`LLAMA3_API_KEY`** — your Groq key from Step 4.
-* **`SEC_USER_AGENT`** — your real name and email (the SEC requires this for
-  EDGAR access; requests without it may be blocked).
+- **`LLAMA3_API_KEY`** — your Groq key. Without this, executive summary,
+  risks and guidance will show placeholder messages (KPIs, tone and signal
+  still work — they don't use the LLM).
+- **`SEC_USER_AGENT`** — your real name + email. The SEC requires a
+  descriptive User-Agent; requests without one may be blocked with 403.
+- `LLAMA3_BASE_URL` and `LLAMA3_MODEL` — default values point to Groq's
+  free tier and do not need to be changed.
 
-> The `.env` file holds your secrets and is git-ignored — never commit it.
+> `.env` is git-ignored — never commit it. Only `.env.example` is tracked.
 
 ## Step 6 — Run the dashboard
 
-```bash
+```powershell
 streamlit run app.py
 ```
 
-Your browser opens at http://localhost:8501. Enter a ticker (e.g. `AAPL`),
-choose a filing type, and click **Analyse**.
+Your browser opens at **http://localhost:8501**.
 
-The **first analysis is slow** because FinBERT (~440 MB) and the embedding
-model download once and are then cached locally. Later runs are fast.
+You will see the **landing page** — click **Try it now →**, then in the
+sidebar enter a ticker (e.g. `AAPL`), choose `10-K` or `10-Q`, and click
+**🚀 Run analysis**.
 
-## Step 7 — (Optional) Run from the command line
+**The first analysis is slow** — FinBERT (~440 MB) and the embedding model
+download and cache on first use. Subsequent runs are significantly faster.
+Cached analyses (SQLite hit) load instantly.
 
-```bash
+## Step 7 — Run from the command line (optional)
+
+```powershell
 python run_cli.py AAPL 10-K
+python run_cli.py MSFT 10-Q --force    # ignore cache, re-analyse
 ```
 
-This runs the same pipeline and prints the results to the terminal.
+The CLI runs the same pipeline and prints the result to the terminal —
+useful for testing without launching Streamlit.
+
+## Verify your setup
+
+Run the offline smoke tests (no internet required, no API key needed):
+
+```powershell
+pip install pytest
+pytest tests/test_smoke.py -v
+```
+
+All 9 tests should pass. If they do, the core logic is wired correctly.
 
 ## Troubleshooting
 
 | Symptom | Fix |
 |---------|-----|
-| `streamlit not recognized` | The venv isn't active — run the activate command, or use `venv\Scripts\python.exe -m streamlit run app.py` |
-| Summary/risks show placeholders | `LLAMA3_API_KEY` is missing or invalid in `.env` |
-| `403 Forbidden` from SEC | Set a real name + email in `SEC_USER_AGENT` |
-| `ModuleNotFoundError: torchvision` | `pip install torchvision` |
-| First run very slow | Expected — models download once, then cache |
+| `streamlit not recognized` | Activate the venv: `venv\Scripts\Activate.ps1` |
+| Summary / risks show placeholder text | `LLAMA3_API_KEY` missing or wrong in `.env`. Restart Streamlit after editing `.env`. |
+| `403 Forbidden` from SEC EDGAR | Set a real name + email in `SEC_USER_AGENT` |
+| `ModuleNotFoundError: spacy` | `pip install spacy && python -m spacy download en_core_web_sm` (optional) |
+| KPI shows inflated 10-Q growth | Tick **Force re-analysis** checkbox and run again to rebuild the XBRL cache |
+| First run very slow (>2 min) | Expected — FinBERT and embedding model download once, then cache |
+| `ModuleNotFoundError: genai_analyst` | Run from the project root (the folder containing `app.py`), not from `src/` |
