@@ -1,1 +1,1 @@
-"""RAG subsystem: chunking, embeddings, vector store, retrieval."""
+"""GenAI Earnings Analyst subpackage."""

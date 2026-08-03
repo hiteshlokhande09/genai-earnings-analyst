@@ -1,1 +1,1 @@
-"""NLP layer: FinBERT sentiment and Llama 3 generation."""
+"""GenAI Earnings Analyst subpackage."""
