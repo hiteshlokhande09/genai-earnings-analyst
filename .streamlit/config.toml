@@ -3,3 +3,4 @@ headless = false
 
 [browser]
 gatherUsageStats = false
+
