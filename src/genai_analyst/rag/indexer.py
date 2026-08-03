@@ -6,6 +6,10 @@ Embedding Generation + ChromaDB Indexing (Pipeline Steps 5-6).
 Takes the chunks produced by ``chunker.py``, generates Sentence Transformer
 embeddings for each (via ``embedder.py``), and persists the chunks + vectors
 into ChromaDB (via ``vector_store.py``).
+
+Running ``index_filing()`` makes a filing queryable by ``retriever.py``.
+Indexing is cached: an already-indexed filing is skipped unless ``force`` is
+set, in which case its collection is reset and rebuilt.
 """
 
 from __future__ import annotations
@@ -18,8 +22,15 @@ from genai_analyst.rag import vector_store
 
 
 def index_filing(filing: dict, sections: Dict[str, str], force: bool = False) -> int:
-    """Chunk -> embed -> store a filing in ChromaDB. Returns chunk count."""
-    # Reset collection if forced
+    """Chunk -> embed -> store a filing in ChromaDB. Returns chunk count.
+
+    If the filing is already indexed and force is False, indexing is skipped
+    (caching) and the existing chunk count is returned.
+    """
+    if not force and vector_store.collection_exists(filing):
+        col = vector_store.get_or_create_collection(filing)
+        return col.count()
+
     if force:
         vector_store.reset_collection(filing)
 
