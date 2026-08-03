@@ -1,0 +1,1 @@
+"""GenAI Earnings Analyst subpackage."""
