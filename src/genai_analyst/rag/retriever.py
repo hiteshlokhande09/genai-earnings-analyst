@@ -1,55 +1,57 @@
 """
-Retrieval-Augmented Generation retriever (Sprint 1, Step 7 of the SRS flow).
+retriever.py
+================
+Retrieval-Augmented Generation - Retrieval Layer (Pipeline Step 7).
 
-Embeds a natural-language query and runs a Top-K cosine-similarity search over
-the filing's ChromaDB collection. Task-specific query templates target the
-sections most relevant to each downstream analysis (summary, risks, guidance),
-which improves retrieval precision over a single generic query.
+Given a natural-language query (e.g. "What are the main risk factors?"),
+embeds the query and performs a Top-K cosine similarity search over a
+filing's ChromaDB collection, returning the most relevant chunks.
+
+Only these retrieved chunks are later passed to Llama 3, which:
+    * minimises token usage / API cost (SRS constraint), and
+    * reduces hallucination by grounding the LLM in source text.
 """
 
 from __future__ import annotations
 
-from typing import Dict, List
+from typing import List
 
 from genai_analyst.core import config
-from genai_analyst.rag import embedder, vector_store
+from genai_analyst.rag import vector_store
+from genai_analyst.rag.embedder import embed_query
 
-# One tuned query per downstream analytical task.
-QUERY_TEMPLATES: Dict[str, str] = {
-    "executive_summary": (
-        "Overall financial performance, revenue, net income and business "
-        "highlights for the period."
-    ),
-    "risk_factors": (
-        "Key risk factors, uncertainties and threats facing the company."
-    ),
-    "guidance": (
-        "Forward-looking guidance, outlook and management expectations for "
-        "future performance."
-    ),
+
+def retrieve(filing: dict, query_text: str, top_k: int = config.RAG_TOP_K) -> List[dict]:
+    """Return the Top-K most relevant chunks for a query against a filing."""
+    q_vec = embed_query(query_text)
+    return vector_store.query(filing, q_vec, top_k=top_k)
+
+
+def retrieve_context(filing: dict, query_text: str, top_k: int = config.RAG_TOP_K) -> str:
+    """Retrieve Top-K chunks and concatenate them into one context block."""
+    hits = retrieve(filing, query_text, top_k=top_k)
+    return "\n\n---\n\n".join(h["document"] for h in hits)
+
+
+# Canonical analyst queries used by the pipeline to pull targeted context.
+QUERY_TEMPLATES = {
+    "executive_summary": "Overall business performance, revenue, profitability, "
+    "and key results this period.",
+    "risk_factors": "What are the most significant risk factors and uncertainties "
+    "facing the company?",
+    "guidance": "Forward-looking guidance, outlook, expectations, and future "
+    "projections from management.",
+    "tone": "Management's discussion of results, confidence, challenges, and outlook.",
 }
 
 
-def retrieve(filing: dict, query_text: str, top_k: int | None = None) -> List[dict]:
-    """Retrieve the Top-K most relevant chunks for a free-text query."""
-    query_vector = embedder.embed_query(query_text)
-    if not query_vector:
-        return []
-    return vector_store.query(filing, query_vector, top_k=top_k)
+def retrieve_all_contexts(filing: dict, top_k: int = config.RAG_TOP_K) -> dict:
+    """Retrieve context blocks for every canonical analyst query."""
+    return {
+        key: retrieve_context(filing, q, top_k=top_k)
+        for key, q in QUERY_TEMPLATES.items()
+    }
 
 
-def retrieve_context(filing: dict, task: str) -> str:
-    """Retrieve and concatenate context for a named task.
-
-    ``task`` must be one of the keys in ``QUERY_TEMPLATES``.
-    """
-    # Falls back to using `task` itself as the raw query text if it isn't a
-    # recognized template key, so callers can still pass an ad-hoc query.
-    query_text = QUERY_TEMPLATES.get(task, task)
-    chunks = retrieve(filing, query_text, top_k=config.RAG_TOP_K)
-    return "\n\n".join(chunk["text"] for chunk in chunks)
-
-
-def retrieve_all_contexts(filing: dict) -> Dict[str, str]:
-    """Retrieve context blocks for every analytical task at once."""
-    return {task: retrieve_context(filing, task) for task in QUERY_TEMPLATES}  # runs one retrieval per task in a single pass
+if __name__ == "__main__":
+    print("Available query templates:", list(QUERY_TEMPLATES.keys()))

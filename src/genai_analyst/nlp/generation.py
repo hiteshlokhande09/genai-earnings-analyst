@@ -1,16 +1,21 @@
 """
-Llama 3 language generation (Sprint 1, Step 8 — summary / risk / guidance).
+generation.py
+================
+Llama 3 Integration (Pipeline Step 8 - LLM layer).
 
-Calls a Llama 3 model through an OpenAI-compatible chat-completions endpoint
-(Groq by default). Three task functions generate the executive summary, a
-structured list of risk factors, and the forward-guidance summary.
+Calls Meta Llama 3 through an OpenAI-compatible chat-completions endpoint
+(default: Groq free tier). Used ONLY for language tasks:
+    * Executive summary generation
+    * Top-5 risk factor extraction (category + severity)
+    * Forward guidance extraction
 
-Cost-control measures (per the SRS non-functional requirements):
-* only the RAG-retrieved context is sent to the model, never the full filing;
-* responses are capped at ``LLAMA3_MAX_TOKENS``;
-* calls retry with exponential backoff on transient failures;
-* if no API key is configured, clearly-labelled placeholders are returned so
-  the rest of the pipeline still runs.
+Financial numbers are NEVER asked of the LLM -- those come from XBRL.
+
+Cost-control measures (SRS constraints):
+    * Only RAG-retrieved chunks are sent (not the whole filing).
+    * max_tokens capped at 500.
+    * Responses cached in SQLite to avoid re-calling for the same filing.
+    * Retry with exponential backoff for transient failures.
 """
 
 from __future__ import annotations
@@ -23,14 +28,14 @@ from typing import List, Optional
 import requests
 
 from genai_analyst.core import config
-
-_PLACEHOLDER = "[LLM not configured — set LLAMA3_API_KEY in your .env file.]"
-_EMPTY = "No forward-looking guidance was found in the retrieved sections of this filing."
-
-
+from genai_analyst.core import database
+# --------------------------------------------------------------------------- #
+# Core API call
+# --------------------------------------------------------------------------- #
 def _chat(system_prompt: str, user_prompt: str) -> Optional[str]:
-    """Send a single chat-completion request, with retries. Returns text/None."""
-    if not config.is_llm_configured():
+    """Single chat-completion call with retry/backoff. Returns text or None."""
+    if not config.LLAMA3_API_KEY:
+        print("[generation] LLAMA3_API_KEY not set; returning None.")
         return None
 
     headers = {
@@ -39,65 +44,95 @@ def _chat(system_prompt: str, user_prompt: str) -> Optional[str]:
     }
     payload = {
         "model": config.LLAMA3_MODEL,
-        "max_tokens": config.LLAMA3_MAX_TOKENS,
-        "temperature": config.LLAMA3_TEMPERATURE,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
+        "max_tokens": config.LLAMA3_MAX_TOKENS,
+        "temperature": config.LLAMA3_TEMPERATURE,
     }
 
-    last_error: Optional[Exception] = None
-    for attempt in range(config.HTTP_MAX_RETRIES):
-        # Exponential backoff (base HTTP_BACKOFF_SECONDS, doubling each retry)
-        # to avoid hammering the endpoint during transient outages/rate limits.
+    last_err: Optional[Exception] = None
+    for attempt in range(config.MAX_RETRIES):
         try:
-            response = requests.post(
+            resp = requests.post(
                 config.LLAMA3_BASE_URL,
                 headers=headers,
                 json=payload,
-                timeout=config.HTTP_TIMEOUT_SECONDS,
+                timeout=config.REQUEST_TIMEOUT,
             )
-            response.raise_for_status()
-            data = response.json()
+            if resp.status_code in (429, 500, 502, 503, 504):
+                raise requests.HTTPError(f"Transient status {resp.status_code}")
+            resp.raise_for_status()
+            data = resp.json()
             return data["choices"][0]["message"]["content"].strip()
-        except requests.RequestException as error:
-            last_error = error
-            time.sleep(config.HTTP_BACKOFF_SECONDS * (2 ** attempt))
-
-    print(f"[nlp.generation] Llama 3 request failed: {last_error}")
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            time.sleep(config.BACKOFF_BASE ** attempt)
+    print(f"[generation] chat failed after retries: {last_err}")
     return None
 
 
-def generate_executive_summary(context: str) -> str:
-    """Generate a concise executive summary from retrieved context."""
-    if not config.is_llm_configured():
-        return _PLACEHOLDER
-    system = (
-        "You are a financial analyst. Write a concise, factual executive "
-        "summary of the company's performance using ONLY the provided context. "
-        "Do not invent numbers."
-    )
-    result = _chat(system, f"Context:\n{context}\n\nExecutive summary:")
-    return result or _PLACEHOLDER
+def _cached_chat(cache_key: str, system_prompt: str, user_prompt: str) -> Optional[str]:
+    """Wrap _chat with a SQLite cache keyed by (filing+task)."""
+    cached = database.get_llm_cache(cache_key)
+    if cached is not None:
+        return cached
+    result = _chat(system_prompt, user_prompt)
+    if result is not None:
+        database.set_llm_cache(cache_key, result)
+    return result
 
 
-def extract_risk_factors(context: str) -> List[dict]:
-    """Extract the top risk factors as a list of structured dicts."""
-    if not config.is_llm_configured():
+# --------------------------------------------------------------------------- #
+# Task-specific helpers
+# --------------------------------------------------------------------------- #
+_SUMMARY_SYS = (
+    "You are a meticulous financial analyst. Summarise the provided excerpt "
+    "from an SEC filing into a concise, factual executive summary (max 6 "
+    "sentences). Do NOT invent numbers; only use figures present in the text."
+)
+
+_RISK_SYS = (
+    "You are a risk analyst. From the provided risk-factor excerpt, extract the "
+    "TOP 5 risk factors. Respond ONLY with a JSON array; each item must have "
+    "keys: 'risk' (short phrase), 'category' (one of: Market, Operational, "
+    "Financial, Regulatory, Strategic, Technology), and 'severity' (High, "
+    "Medium, or Low). No prose, no markdown, JSON only."
+)
+
+_GUIDANCE_SYS = (
+    "You are a financial analyst. From the provided excerpt, extract management's "
+    "forward-looking guidance and outlook in 3-4 concise bullet sentences. If no "
+    "explicit guidance is present, state that no formal guidance was provided."
+)
+
+
+def generate_executive_summary(context: str, cache_key: str) -> str:
+    """Generate an executive summary from retrieved context."""
+    out = _cached_chat(f"{cache_key}:summary", _SUMMARY_SYS, context[:8000])
+    return out or "Executive summary unavailable (LLM not configured or no context)."
+
+
+def extract_risk_factors(context: str, cache_key: str) -> List[dict]:
+    """Extract top-5 structured risk factors. Always returns a list."""
+    out = _cached_chat(f"{cache_key}:risks", _RISK_SYS, context[:8000])
+    if not out:
         return []
-    system = (
-        "You are a financial analyst. From the provided context, extract the "
-        "top 5 risk factors. Respond ONLY with a JSON array of objects, each "
-        'with keys "risk", "category" and "severity" (Low/Medium/High). '
-        "No prose, no markdown."
-    )
-    result = _chat(system, f"Context:\n{context}\n\nJSON:")
-    if not result:
-        return []
+    return _safe_parse_json_array(out)
 
-    # Be tolerant of code fences or stray text around the JSON.
-    match = re.search(r"\[.*\]", result, re.DOTALL)
+
+def extract_guidance(context: str, cache_key: str) -> str:
+    """Extract forward guidance summary."""
+    out = _cached_chat(f"{cache_key}:guidance", _GUIDANCE_SYS, context[:8000])
+    return out or "Forward guidance unavailable (LLM not configured or no context)."
+
+
+def _safe_parse_json_array(text: str) -> List[dict]:
+    """Best-effort extraction of a JSON array from an LLM response."""
+    # Strip code fences if present.
+    text = re.sub(r"```(?:json)?", "", text).strip()
+    match = re.search(r"\[.*\]", text, re.DOTALL)
     if not match:
         return []
     try:
@@ -107,14 +142,6 @@ def extract_risk_factors(context: str) -> List[dict]:
         return []
 
 
-def extract_guidance(context: str) -> str:
-    """Summarise forward-looking guidance from retrieved context."""
-    if not config.is_llm_configured():
-        return _PLACEHOLDER
-    system = (
-        "You are a financial analyst. Summarise the company's forward-looking "
-        "guidance and outlook using ONLY the provided context. If no explicit "
-        "guidance is given, say so."
-    )
-    result = _chat(system, f"Context:\n{context}\n\nForward guidance:")
-    return result or _EMPTY
+if __name__ == "__main__":
+    print("Llama3 configured:", bool(config.LLAMA3_API_KEY))
+    print("Model:", config.LLAMA3_MODEL)
