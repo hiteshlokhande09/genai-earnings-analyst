@@ -1,52 +1,34 @@
 """
-Headless command-line runner for the Sprint 1 pipeline.
+run_cli.py
+==========
+Headless command-line runner — useful for testing the pipeline without
+launching the Streamlit UI, and for the review demo.
 
 Usage:
     python run_cli.py AAPL 10-K
-
-Prints the executive summary, tone, risks and guidance to the terminal. Useful
-for testing the pipeline without launching the Streamlit dashboard.
+    python run_cli.py MSFT 10-Q --force
 """
-
-import os
-import sys
-
-SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "src")
-if SRC not in sys.path:
-    sys.path.insert(0, SRC)
-
+import argparse
 from genai_analyst.core import pipeline
-
-
-def _progress(message, fraction):
-    print(f"[{int(fraction * 100):3d}%] {message}")
-
-
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python run_cli.py TICKER [FORM_TYPE]")
-        sys.exit(1)
+    ap = argparse.ArgumentParser(description="Run the earnings analysis pipeline.")
+    ap.add_argument("ticker", help="Stock ticker symbol, e.g. AAPL")
+    ap.add_argument("form", nargs="?", default="10-K", choices=["10-K", "10-Q"])
+    ap.add_argument("--force", action="store_true", help="Ignore cache, re-analyse")
+    args = ap.parse_args()
 
-    ticker = sys.argv[1].upper()  # normalise ticker to uppercase, e.g. 'aapl' -> 'AAPL'
-    form_type = sys.argv[2] if len(sys.argv) > 2 else "10-K"
-
-    result = pipeline.run_analysis(ticker, form_type, progress=_progress)
-
-    print("\n" + "=" * 60)
+    result = pipeline.run_analysis(args.ticker, args.form, force=args.force)
     if "error" in result:
         print("ERROR:", result["error"])
-        sys.exit(1)
-
-    filing = result["filing"]
-    print(f"{filing['company']} ({filing['ticker']}) — {filing['form']} "
-          f"filed {filing['filing_date']}")
-    print("=" * 60)
-    print("\nEXECUTIVE SUMMARY\n", result["summary"])
-    print("\nTONE\n", result["tone"])
-    print("\nRISK FACTORS")
-    for risk in result["risks"]:
-        print(" -", risk)
-    print("\nFORWARD GUIDANCE\n", result["guidance"])
+        return
+    print("\n========== RESULT ==========")
+    print("Company :", result["filing"]["company"])
+    print("Form    :", result["filing"]["form"], result["filing"]["filing_date"])
+    print("Chunks  :", result.get("n_chunks"))
+    print("Tone    :", result["tone"]["label"], result["tone"]["tone_score"])
+    print("Signal  :", result["signal"]["classification"], result["signal"]["score"])
+    print("PDF     :", result["pdf_path"])
+    print("Summary :", result["summary"][:300])
 
 
 if __name__ == "__main__":
