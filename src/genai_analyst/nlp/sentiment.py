@@ -1,10 +1,15 @@
 """
-Financial sentiment analysis with FinBERT (Sprint 1, Step 8 — sentiment).
+sentiment.py
+================
+Financial Sentiment / Management Tone Analysis (Pipeline Step 8).
 
-Uses the local ``ProsusAI/finbert`` model to label management commentary as
-positive / negative / neutral. The model is loaded lazily and cached. An
-aggregate tone score in the range [0, 1] is produced by weighting the
-per-chunk labels.
+Uses FinBERT (ProsusAI/finbert) running fully LOCALLY via HuggingFace
+transformers + PyTorch. No API cost. First run downloads ~440 MB and
+caches it; subsequent runs are instant.
+
+Produces a per-chunk Positive/Negative/Neutral label with a confidence
+score, then aggregates into an overall management tone score in [0, 1]
+where 1.0 = maximally positive.
 """
 
 from __future__ import annotations
@@ -12,74 +17,109 @@ from __future__ import annotations
 from typing import Dict, List
 
 from genai_analyst.core import config
+_PIPELINE = None  # transformers pipeline singleton
 
-_PIPELINE = None  # lazy-loaded transformers sentiment pipeline
 
-
-def _get_pipeline():
-    """Load and cache the FinBERT pipeline on first use."""
+def get_pipeline():
+    """Load (once) the FinBERT text-classification pipeline."""
     global _PIPELINE
     if _PIPELINE is None:
-        from transformers import pipeline as hf_pipeline
+        from transformers import (
+            AutoModelForSequenceClassification,
+            AutoTokenizer,
+            pipeline,
+        )
 
-        _PIPELINE = hf_pipeline(
-            "sentiment-analysis",
-            model=config.FINBERT_MODEL_NAME,
+        print(f"[sentiment] Loading FinBERT '{config.FINBERT_MODEL_NAME}'...")
+        tokenizer = AutoTokenizer.from_pretrained(config.FINBERT_MODEL_NAME)
+        model = AutoModelForSequenceClassification.from_pretrained(
+            config.FINBERT_MODEL_NAME
+        )
+        _PIPELINE = pipeline(
+            "text-classification",
+            model=model,
+            tokenizer=tokenizer,
             truncation=True,
             max_length=512,
         )
     return _PIPELINE
 
 
-def analyze_chunks(chunks: List[str]) -> List[dict]:
-    """Label each chunk with a sentiment and confidence score."""
+def analyze_chunks(chunks: List[str]) -> List[Dict]:
+    """Classify each chunk. Returns list of {label, score, text_preview}."""
     if not chunks:
         return []
-    pipeline = _get_pipeline()
-    sample = chunks[: config.FINBERT_MAX_CHUNKS]
-    raw = pipeline(sample)
-    return [
-        {"label": item["label"].lower(), "score": float(item["score"])}
-        for item in raw
-    ]
+    clf = get_pipeline()
+    results = []
+    for chunk in chunks:
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            out = clf(chunk[:2000])[0]  # guard against very long inputs
+            results.append(
+                {
+                    "label": out["label"].capitalize(),
+                    "score": round(float(out["score"]), 4),
+                    "text_preview": chunk[:120],
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 - never crash on a bad chunk
+            print(f"[sentiment] skipped a chunk: {exc}")
+    return results
 
 
-def aggregate_tone(results: List[dict]) -> Dict[str, object]:
-    """Combine per-chunk labels into an overall tone score and label.
+def aggregate_tone(chunk_results: List[Dict]) -> Dict:
+    """Aggregate per-chunk sentiment into an overall tone summary.
 
-    The tone score maps positive -> 1.0, neutral -> 0.5, negative -> 0.0,
-    weighted by model confidence, then averaged.
+    Returns:
+        {tone_score: float in [0,1], label: str, positive: int,
+         negative: int, neutral: int, total: int}
     """
-    if not results:
-        return {
-            "label": "N/A",
-            "tone_score": 0.5,
-            "positive": 0,
-            "neutral": 0,
-            "negative": 0,
-        }
+    pos = neg = neu = 0
+    weighted = 0.0
+    for r in chunk_results:
+        label = r["label"].lower()
+        conf = r["score"]
+        if label == "positive":
+            pos += 1
+            weighted += conf
+        elif label == "negative":
+            neg += 1
+            weighted -= conf
+        else:
+            neu += 1
+    total = max(pos + neg + neu, 1)
+    # Map weighted polarity from [-1, 1] to a [0, 1] tone score.
+    raw = weighted / total
+    tone_score = round((raw + 1) / 2, 4)
 
-    weight = {"positive": 1.0, "neutral": 0.5, "negative": 0.0}  # maps labels onto a 0-1 scale so tone_score is directly interpretable (0=negative, 1=positive)
-    counts = {"positive": 0, "neutral": 0, "negative": 0}
-    total = 0.0
-
-    for item in results:
-        label = item["label"]
-        counts[label] = counts.get(label, 0) + 1
-        total += weight.get(label, 0.5)
-
-    tone_score = total / len(results)
-    overall = max(counts, key=counts.get)
+    if tone_score >= 0.6:
+        label = "Positive"
+    elif tone_score <= 0.4:
+        label = "Negative"
+    else:
+        label = "Neutral"
 
     return {
-        "label": overall.capitalize(),
-        "tone_score": round(tone_score, 4),
-        "positive": counts["positive"],
-        "neutral": counts["neutral"],
-        "negative": counts["negative"],
+        "tone_score": tone_score,
+        "label": label,
+        "positive": pos,
+        "negative": neg,
+        "neutral": neu,
+        "total": total,
     }
 
 
-def analyze(chunks: List[str]) -> Dict[str, object]:
-    """Full sentiment entry point: chunks -> aggregate tone summary."""
-    return aggregate_tone(analyze_chunks(chunks))
+def analyze(chunks: List[str]) -> Dict:
+    """Convenience wrapper: per-chunk classification + aggregate."""
+    per_chunk = analyze_chunks(chunks)
+    summary = aggregate_tone(per_chunk)
+    summary["chunks"] = per_chunk
+    return summary
+
+
+if __name__ == "__main__":
+    demo = ["Revenue grew strongly and margins expanded.",
+            "We face significant competitive and regulatory risks."]
+    print(aggregate_tone(analyze_chunks(demo)))
